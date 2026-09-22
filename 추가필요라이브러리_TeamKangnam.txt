@@ -1,0 +1,6 @@
+추가로 설치가 필요한 라이브러리 / 플러그인: 없음
+
+- 제출된 AIP_DCS_TeamKangnam.dll은 순수 C++(MSVC 빌드) 행동 트리 엔진으로, 표준 MSVC
+  런타임 외에 별도 외부 라이브러리에 의존하지 않습니다.
+- 실행에는 대회 측이 이미 제공한 기본 환경(DogFightEnv/Release, conda 환경 `aip`,
+  requirements.txt에 명시된 패키지)만 있으면 되고, 그 외 추가 설치는 필요하지 않습니다.

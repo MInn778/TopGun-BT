@@ -1,0 +1,90 @@
+<root main_tree_to_execute = "MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence>
+      <!-- 1. 전술 정보 갱신 (Tactical Blackboard State Updates) -->
+      <Sequence>
+        <SelectTarget name="SelectTarget" BB="{BB}"/>
+        <DirectionVectorUpdate name="DirectionVectorUpdate" BB="{BB}"/>
+        <DistanceUpdate name="DistanceUpdateService" BB="{BB}"/>
+        <CheckSight name="CheckSight" BB="{BB}"/>          
+        <AngleOffUpdate name="AngleOffUpdate" BB="{BB}"/>
+        <AspectAngleUpdate name="AspectAngleUpdate" BB="{BB}"/>
+
+        <!-- 2. 계층적 전술 판단 (Fallback Decision Tree) -->
+        <Fallback>
+          <!-- 1순위: 비상 고도 방어막 (Altitude Emergency Guard)
+               2026-08-17: 이력(hysteresis) 가드(650->1200m 복귀)를 60개 시나리오로
+               검증했으나 우리 자멸률이 43.3%로 전혀 안 줄어듦(개선 효과 없음, 오히려
+               무승부만 늘어 승률 하락) -- 원래(단순 임계값) 버전으로 되돌림.
+               자멸 문제는 VP 조준점 튜닝 수준으로는 해결 안 되는 것으로 결론,
+               md/종합_판단_20260817.md 참고.
+               2026-08-22(v1 전용 파일로 분리, 발동고도 650->1000): 라이브
+               실측(v1, AIP_DCS_team01.dll)에서 650m 발동에도 급강하(피치
+               -56~-76도, 수직속도 초당 300m 근접) 중이라 300m 추락판정고도까지
+               1초 남짓밖에 안 남아 회복 못 하고 자멸함. v2에서 같은 원인(600m
+               발동해도 8m까지 떨어진 뒤에야 회복)으로 1000m로 올려 여유고도를
+               확보했던 것과 동일하게 적용.
+               2026-08-22(1000->1200, 재조정): 1000m 재검증 라이브에서도 자멸
+               재현(1000m 발동은 정확히 됐고 피치도 -75.7도->-51.4도로 회복은
+               되고 있었으나, 회복 속도보다 낙하 속도가 빨라 300m 도달이 더
+               빠름 -- 4초 만에 859m->307m). 하강 가속도가 예상보다 커서 여유
+               고도를 200m 더 확보. 근본원인(뱅크각 90도 초과 시 피치부호
+               미보정, Controller_CY.cpp)은 별도로 조사/수정 필요 -- 이 문턱
+               상향은 임시 안전마진일 뿐 근본 수정 아님.
+               2026-08-22(1200->1500, 재조정): invertedCore 이식 후 재검증
+               라이브에서도 자멸 재현 -- 이번엔 t=390s에 4101m까지 뒤집힌
+               채로도 상승 성공(invertedCore 자체는 작동)했으나 이후 22초간
+               지속 하강, 1200m 근처서 비상회복 발동해 피치 -69도->-17도로
+               거의 다 회복했지만 딱 그 직전(고도 0m대)에 충돌. 회복 로직
+               자체는 유효하니 여유고도를 더 확보하는 방향으로 재조정. -->
+          <Sequence>
+            <DECO_AltitudeCheck name="AltitudeCheck_Emergency" UpDown="Less" Altitude="1500" BB="{BB}"/>
+            <Task_EmergencyPullUp name="EmergencyPullUp" BB="{BB}"/>
+          </Sequence>
+
+          <!-- 2순위: WEZ 근거리 사격 조준 기동 (Distance <= 914m) -->
+          <Sequence>
+            <DECO_DistanceCheck name="DistanceCheck_WEZ" UpDown="Less" Distance="914" BB="{BB}"/>
+            <Task_WEZAttack name="Task_CloseDogfightWEZ" BB="{BB}"/>
+          </Sequence>
+
+          <!-- 3순위: 방어 기동 (2026-08-17 신규, 1차 실측 후 사거리 축소:
+               3000m로 뒀더니 WEZ(914m)에 들어가기도 전에 서로 미리 회피하며
+               교전 자체를 피해버림(데미지 0건). 상대 무기 사거리(914m) 근처로
+               좁혀서 "진짜 맞을 위험" 있을 때만 반응하도록 함. -->
+          <Sequence>
+            <DECO_DistanceCheck name="DistanceCheck_Threat" UpDown="Less" Distance="1100" BB="{BB}"/>
+            <DECO_ThreatCheck name="ThreatCheck" UpDown="Less" InputLOS="20" BB="{BB}"/>
+            <Task_Evade name="Task_Evade" BB="{BB}"/>
+          </Sequence>
+
+          <!-- 4순위: 중거리 추격 및 6시 꼬리 잡기 (Distance <= 6000m, 2026-08-16 4차
+               튜닝: 3000->6000 확대. 헤드온 머지 그대로 스쳐지나가면 180도 반전에
+               시간이 너무 걸린다는 게 실측으로 확인돼, stern-conversion(꼬리 조준)이
+               더 먼 거리부터 개입해서 애초에 정면충돌 항로가 아니라 휘어들어가는
+               항로를 더 일찍 만들도록 함 -->
+          <Sequence>
+            <DECO_DistanceCheck name="DistanceCheck_Mid" UpDown="Less" Distance="6000" BB="{BB}"/>
+            <Task_MidRangeEngage name="Task_MidRangeEngage" BB="{BB}"/>
+          </Sequence>
+
+          <!-- 5순위: 원거리 접근 인터셉트 기동 (Distance > 6000m)
+               2026-08-18: 팀원(YUGKUN02) BT의 Task_Intercept로 교체. 기존 Task_LongRangeApproach는
+               캡 리드타임(3초)+측면바이어스 휴리스틱이라 "헤드온 머지 후 안 붙는 문제"가
+               주석으로 계속 남아있었음(md/BT_결과_보고서_통합_20260818.md 4순위 참고).
+               Task_Intercept는 상대 실측 선회각속도로 원운동 궤적을 예측해 코너컷팅하므로
+               이 문제를 더 정확한 수학으로 해결할 것으로 기대 — 60개 시나리오 배치 재검증 예정. -->
+          <Sequence>
+            <DECO_DistanceCheck name="DistanceCheck_Far" UpDown="Greater" Distance="6000" BB="{BB}"/>
+            <Task_Intercept name="Task_Intercept" BB="{BB}" LeadTime="1.5" CutoffRadiusMult="1.15"/>
+          </Sequence>
+
+          <!-- 6순위: 기본 예외 보존 기동 -->
+          <Sequence>
+            <Task_Empty name="Task_DefaultMaintenance" BB="{BB}"/>
+          </Sequence>
+        </Fallback>
+      </Sequence>
+    </Sequence>
+  </BehaviorTree>
+</root>

@@ -1,0 +1,23 @@
+# Visual Studio / build artifacts (regenerable, huge - keep the repo to source only)
+.vs/
+Debug/
+Release/
+x64/
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.log
+*.tlog
+*.lastbuildstate
+*.exp
+*.lib
+*.dll
+*.iobj
+*.ipdb
+
+# CMake build artifacts (regenerable)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
